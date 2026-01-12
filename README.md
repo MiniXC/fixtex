@@ -65,6 +65,66 @@ python fixtex.py example.bib
 - Chrome/Chromium browser (for Selenium)
 - OpenRouter API key ([Get one here](https://openrouter.ai/))
 
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project directory with your OpenRouter API key:
+
+```bash
+OPENROUTER_API_KEY=your_api_key_here
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet  # Optional, defaults to claude-3.5-sonnet
+```
+
+You can also pass the API key directly via command line:
+
+```bash
+python fixtex.py input.bib -k YOUR_API_KEY
+```
+
+### Supported Models
+
+FixTeX works with any model available on OpenRouter. Some recommended models:
+
+- `anthropic/claude-3.5-sonnet` (default, best quality)
+- `anthropic/claude-3-haiku` (faster, lower cost)
+- `openai/gpt-4` (high quality)
+- `openai/gpt-3.5-turbo` (faster, lower cost)
+
+## Troubleshooting
+
+### Chrome/ChromeDriver Issues
+
+If you encounter Chrome/ChromeDriver errors:
+
+1. Ensure Chrome or Chromium is installed:
+   ```bash
+   google-chrome --version  # or chromium-browser --version
+   ```
+
+2. ChromeDriver should be automatically managed by Selenium 4.x
+
+3. Try running in non-headless mode to see what's happening:
+   ```bash
+   python fixtex.py input.bib --no-headless
+   ```
+
+### Rate Limiting
+
+Google Scholar may rate-limit requests. The script includes delays between requests, but if you're processing many entries:
+
+- Consider processing in smaller batches
+- The script waits 3 seconds between entries by default
+- Avoid running multiple instances simultaneously
+
+### API Errors
+
+If you encounter OpenRouter API errors:
+
+- Verify your API key is correct
+- Check your account has sufficient credits
+- Some models may have usage limits or require specific permissions
+
 ## How It Works
 
 1. **Parse**: Reads the input BibTeX file

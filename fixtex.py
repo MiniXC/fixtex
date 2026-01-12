@@ -9,6 +9,7 @@ the citation.
 
 import argparse
 import os
+import re
 import sys
 import time
 from typing import List, Dict, Optional
@@ -188,7 +189,7 @@ class ScholarScraper:
                     try:
                         snippet_elem = result.find_element(By.CSS_SELECTOR, '.gs_rs')
                         snippet = snippet_elem.text
-                    except:
+                    except NoSuchElementException:
                         pass
                     
                     versions_info.append({
@@ -382,7 +383,6 @@ Reformatted BibTeX entry:"""
             
             # Try to extract the number from the response
             # Look for patterns like "Version 0", "0", "index 0", etc.
-            import re
             numbers = re.findall(r'\b(\d+)\b', content)
             if numbers:
                 selected_index = int(numbers[0])

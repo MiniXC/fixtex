@@ -69,22 +69,25 @@ python fixtex.py example.bib
 
 1. **Parse**: Reads the input BibTeX file
 2. **Search**: For each entry, searches Google Scholar using the title or author+year
-3. **Select**: Clicks "All versions" and selects the most reputable source based on:
-   - Conference rankings (ICML, NeurIPS, CVPR, etc.)
-   - Journal rankings (ACM, IEEE, Springer, etc.)
-   - Preprint servers (arXiv) as fallback
+3. **Select**: Clicks "All versions" and uses an LLM to select the most reputable source by analyzing:
+   - Publication venue (conference, journal, preprint server)
+   - Peer-review status
+   - Venue reputation (ICML, NeurIPS, CVPR, ACL, IEEE, ACM, etc.)
+   - Publication type (full paper vs workshop vs preprint)
 4. **Extract**: Gets the BibTeX citation from the selected source
 5. **Reformat**: Uses an LLM (via OpenRouter) to clean and standardize the entry
 6. **Output**: Writes all entries to a new BibTeX file
 
-## Source Reputation Ranking
+## LLM-Powered Source Selection
 
-FixTeX ranks sources in the following order (from most to least reputable):
-- Top-tier conferences: ACM, IEEE, NeurIPS, ICML, ICLR, CVPR (90-100)
-- Major conferences: AAAI, IJCAI, ACL, EMNLP (85-90)
-- Journals: JMLR, PMLR (85-90)
-- Preprints: arXiv (50)
-- PDFs: Generic PDFs (30)
+Unlike traditional tools that rely on hardcoded rules, FixTeX uses an LLM to intelligently evaluate and select the most reputable version of each paper. The LLM considers:
+
+- **Peer-reviewed venues**: Prioritizes top-tier conferences (ICML, NeurIPS, CVPR, ACL) and journals (IEEE, ACM, Springer)
+- **Publication quality**: Distinguishes between full conference papers, workshop papers, and preprints
+- **Context awareness**: Understands venue reputation within specific research domains
+- **Flexibility**: Adapts to new venues and publication types without code changes
+
+This approach is more robust and maintainable than keyword matching, and can make nuanced decisions based on the full context of each publication.
 
 ## License
 

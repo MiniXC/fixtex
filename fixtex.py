@@ -33,30 +33,7 @@ load_dotenv()
 class ScholarScraper:
     """Scrapes Google Scholar for BibTeX entries."""
     
-    # Source reputation ranking (higher is more reputable)
-    SOURCE_REPUTATION = {
-        'acm': 100,
-        'ieee': 100,
-        'springer': 90,
-        'neurips': 95,
-        'icml': 95,
-        'iclr': 95,
-        'cvpr': 95,
-        'iccv': 95,
-        'eccv': 95,
-        'nips': 95,
-        'aaai': 90,
-        'ijcai': 90,
-        'acl': 90,
-        'emnlp': 90,
-        'naacl': 90,
-        'pmlr': 85,
-        'jmlr': 90,
-        'arxiv': 50,
-        'pdf': 30,
-    }
-    
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, llm_reformatter=None):
         """Initialize the scraper with Selenium WebDriver."""
         options = webdriver.ChromeOptions()
         if headless:
@@ -69,6 +46,7 @@ class ScholarScraper:
         
         self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, 10)
+        self.llm_reformatter = llm_reformatter
     
     def __enter__(self):
         return self
@@ -159,7 +137,7 @@ class ScholarScraper:
     
     def _select_best_version(self) -> object:
         """
-        From a versions page, select the most reputable version.
+        From a versions page, select the most reputable version using LLM.
         
         Returns:
             Selenium WebElement of the best result
@@ -168,33 +146,78 @@ class ScholarScraper:
         if not results:
             return None
         
-        best_result = None
-        best_score = -1
+        if len(results) == 1:
+            print("Only one version found, using it")
+            return results[0]
         
-        for result in results:
-            score = self._score_result(result)
-            if score > best_score:
-                best_score = score
-                best_result = result
+        # If we have an LLM reformatter, use it to select the best version
+        if self.llm_reformatter:
+            best_result = self._llm_select_best_version(results)
+            if best_result:
+                return best_result
         
-        print(f"Selected version with score: {best_score}")
-        return best_result if best_result else results[0]
+        # Fallback to first result if LLM selection fails
+        print("Using first result as fallback")
+        return results[0]
     
-    def _score_result(self, result) -> int:
-        """Score a search result based on source reputation."""
+    def _llm_select_best_version(self, results: List) -> Optional[object]:
+        """
+        Use LLM to select the most reputable version from a list of results.
+        
+        Args:
+            results: List of Selenium WebElements representing search results
+            
+        Returns:
+            The best result WebElement, or None if selection fails
+        """
         try:
-            # Get the text content of the result
-            text = result.text.lower()
+            # Extract information about each version
+            versions_info = []
+            for i, result in enumerate(results[:10]):  # Limit to first 10 versions
+                try:
+                    # Get title
+                    title_elem = result.find_element(By.CSS_SELECTOR, '.gs_rt')
+                    title = title_elem.text
+                    
+                    # Get publication info (venue, year, etc.)
+                    info_elem = result.find_element(By.CSS_SELECTOR, '.gs_a')
+                    info = info_elem.text
+                    
+                    # Get snippet/abstract if available
+                    snippet = ""
+                    try:
+                        snippet_elem = result.find_element(By.CSS_SELECTOR, '.gs_rs')
+                        snippet = snippet_elem.text
+                    except:
+                        pass
+                    
+                    versions_info.append({
+                        'index': i,
+                        'title': title,
+                        'info': info,
+                        'snippet': snippet
+                    })
+                except Exception as e:
+                    print(f"Warning: Could not extract info for version {i}: {e}")
+                    continue
             
-            # Check for each source in our reputation list
-            max_score = 0
-            for source, score in self.SOURCE_REPUTATION.items():
-                if source in text:
-                    max_score = max(max_score, score)
+            if not versions_info:
+                return None
             
-            return max_score
-        except:
-            return 0
+            # Ask LLM to select the best version
+            print(f"Asking LLM to select best version from {len(versions_info)} options...")
+            best_index = self.llm_reformatter.select_best_version(versions_info)
+            
+            if best_index is not None and 0 <= best_index < len(results):
+                print(f"LLM selected version {best_index}")
+                return results[best_index]
+            else:
+                print(f"LLM returned invalid index: {best_index}, using first result")
+                return results[0]
+                
+        except Exception as e:
+            print(f"Error in LLM version selection: {e}")
+            return None
     
     def _get_citation(self, result) -> Optional[str]:
         """
@@ -319,6 +342,82 @@ BibTeX entry:
 {bibtex}
 
 Reformatted BibTeX entry:"""
+    
+    def select_best_version(self, versions: List[Dict]) -> Optional[int]:
+        """
+        Use LLM to select the most reputable version from a list of versions.
+        
+        Args:
+            versions: List of version dictionaries with 'index', 'title', 'info', 'snippet'
+            
+        Returns:
+            Index of the best version, or None on error
+        """
+        prompt = self._build_selection_prompt(versions)
+        
+        try:
+            response = requests.post(
+                self.base_url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                },
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # Extract the selected index from the response
+            content = result['choices'][0]['message']['content'].strip()
+            
+            # Try to extract the number from the response
+            # Look for patterns like "Version 0", "0", "index 0", etc.
+            import re
+            numbers = re.findall(r'\b(\d+)\b', content)
+            if numbers:
+                selected_index = int(numbers[0])
+                return selected_index
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error selecting best version with LLM: {e}")
+            return None
+    
+    def _build_selection_prompt(self, versions: List[Dict]) -> str:
+        """Build the prompt for version selection."""
+        versions_text = []
+        for v in versions:
+            versions_text.append(f"""Version {v['index']}:
+Title: {v['title']}
+Publication Info: {v['info']}
+Snippet: {v['snippet'][:200] if v['snippet'] else 'N/A'}
+""")
+        
+        versions_str = "\n---\n".join(versions_text)
+        
+        return f"""You are helping to select the most reputable publication version from multiple sources.
+Consider the following factors in order of importance:
+1. Peer-reviewed conference/journal publications are most reputable (e.g., ICML, NeurIPS, CVPR, ACL, IEEE, ACM)
+2. Workshop papers and published proceedings are moderately reputable
+3. Preprint servers (arXiv, bioRxiv) are less reputable than peer-reviewed venues
+4. PDFs from personal websites or unknown sources are least reputable
+
+Below are the available versions of a paper. Please select the MOST REPUTABLE version.
+
+{versions_str}
+
+Please respond with ONLY the number (index) of the most reputable version. For example, if Version 2 is most reputable, respond with just "2"."""
 
 
 def parse_bibtex_file(filepath: str) -> List[Dict]:
@@ -386,7 +485,7 @@ def process_bibtex(input_file: str, output_file: str, style: str = "standard",
     reformatter = LLMReformatter(api_key)
     fixed_entries = []
     
-    with ScholarScraper(headless=headless) as scraper:
+    with ScholarScraper(headless=headless, llm_reformatter=reformatter) as scraper:
         for i, entry in enumerate(entries, 1):
             entry_id = entry.get('ID', 'unknown')
             print(f"\n[{i}/{len(entries)}] Processing entry: {entry_id}")
